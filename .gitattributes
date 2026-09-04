@@ -1,0 +1,20 @@
+# 仓库统一使用 LF；检出时文本文件保持 LF，不随各机器 core.autocrlf 变化
+* text=auto eol=lf
+
+# Windows 批处理脚本必须 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制文件不做任何转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.gz binary
+*.zip binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
