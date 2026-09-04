@@ -22,7 +22,7 @@
 ## 规划的仓库结构
 
 ```
-knowledge-base/
+Knowledge-Vault/
 ├── server/    # FastAPI 服务端（api + worker 同镜像）
 ├── client/    # Flutter 客户端
 ├── deploy/    # docker-compose、.env、备份脚本
