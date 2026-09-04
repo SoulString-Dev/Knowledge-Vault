@@ -30,9 +30,7 @@ async def _reembed(force: bool) -> int:
         conds = [Article.content_text.is_not(None)]
         if not force:
             conds.append(Article.embedding.is_(None))
-        total = (
-            await session.scalar(select(func.count()).select_from(Article).where(*conds)) or 0
-        )
+        total = await session.scalar(select(func.count()).select_from(Article).where(*conds)) or 0
         log.info(
             "reembed: enqueueing",
             total=int(total),
