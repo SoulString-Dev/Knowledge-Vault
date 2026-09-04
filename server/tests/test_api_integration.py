@@ -16,9 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.api import auth as auth_mod
 from app.config import get_settings
 from app.core.ratelimit import SlidingWindowLimiter
+from app.core.security import hash_password
 from app.db import Base, get_session
 from app.main import create_app
-from app.models import Article, Job
+from app.models import Article, Job, User
 from app.services import embedder as embedder_mod
 from app.services import llm as llm_mod
 from app.workers import handlers as handlers_mod
@@ -274,9 +275,22 @@ async def test_patch_triggers_reindex_and_embed(client: httpx.AsyncClient, db_en
         assert article.search_tsv is not None
 
 
-async def test_admin_user_management(client: httpx.AsyncClient) -> None:
-    tokens1 = await _register(client)
-    headers1 = await _auth_headers(tokens1)  # 首个用户是管理员
+async def test_admin_user_management(client: httpx.AsyncClient, db_engine) -> None:
+    # 共享库中注册顺序不可控，直接造一个管理员验证 admin 通道
+    admin_user = User(
+        username=f"root{uuid.uuid4().hex[:8]}",
+        password_hash=hash_password("password123"),
+        is_admin=True,
+    )
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with factory() as session:
+        session.add(admin_user)
+        await session.commit()
+    login = await client.post(
+        "/api/v1/auth/login", json={"username": admin_user.username, "password": "password123"}
+    )
+    assert login.status_code == 200
+    headers1 = await _auth_headers(login.json())
     tokens2 = await _register(client)
     me2 = (await client.get("/api/v1/auth/me", headers=await _auth_headers(tokens2))).json()
 
