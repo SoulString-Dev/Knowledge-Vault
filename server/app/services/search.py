@@ -74,7 +74,9 @@ async def keyword_search(
         return []
     tq = func.to_tsquery("simple", tsq)
     rank = func.ts_rank_cd(Article.search_tsv, tq).label("rank")
-    headline = func.ts_headline("simple", Article.content_text, tq, _HEADLINE_OPTS).label("headline")
+    headline = func.ts_headline("simple", Article.content_text, tq, _HEADLINE_OPTS).label(
+        "headline"
+    )
     # hnsw.ef_search 默认即为 40，无需显式设置
     stmt = (
         select(Article.id, Article.title, Article.url, Article.status, rank, headline)

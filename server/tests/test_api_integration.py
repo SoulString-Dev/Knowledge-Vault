@@ -13,12 +13,12 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.api import auth as auth_mod
 from app.config import get_settings
 from app.core.ratelimit import SlidingWindowLimiter
 from app.db import Base, get_session
 from app.main import create_app
 from app.models import Article, Job
-from app.api import auth as auth_mod
 from app.services import embedder as embedder_mod
 from app.services import llm as llm_mod
 from app.workers import handlers as handlers_mod
