@@ -54,4 +54,25 @@ uv run mypy app
 - worker 完整运行需要 embedding 依赖与模型：`uv sync --extra embed`（首次约 2.3GB 下载）；仅调试 API 可省略，embed 任务会以明确错误失败。
 - JS 渲染兜底为可选：`uv sync --extra render` 并配置 `PLAYWRIGHT_CDP_URL`。
 - 一键部署见 `deploy/`（`docker compose up -d`，api 启动时自动执行迁移）。
+- 换 embedding 模型后重嵌入：`python -m app.cli reembed --force`。
+
+## 开发（M2 客户端）
+
+前置：Flutter SDK（stable，≥3.47）。
+
+```bash
+cd client
+flutter pub get
+flutter gen-l10n     # 生成中文文案（l10n.yaml）
+flutter run          # 选择设备：Windows 桌面 / Android / Linux / macOS
+flutter analyze
+flutter test
+```
+
+说明：
+
+- 首次运行需在登录页填入服务器地址（如 `http://localhost:8000`）。
+- Windows 桌面构建插件需要系统开启「开发者模式」（symlink 支持）。
+- 打包：Android `flutter build apk`；Windows `flutter build windows`（M5 出 MSIX/安装包）。
+
 

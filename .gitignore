@@ -25,6 +25,13 @@ dist/
 .flutter-plugins-dependencies
 *.g.dart
 *.freezed.dart
+client/android/.gradle/
+client/android/local.properties
+client/android/key.properties
+client/android/app/.cxx/
+client/macos/Flutter/ephemeral/
+client/windows/flutter/ephemeral/
+client/linux/flutter/ephemeral/
 
 # ===== IDE =====
 .idea/
