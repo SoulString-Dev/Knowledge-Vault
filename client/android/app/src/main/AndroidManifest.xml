@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 客户端需要访问自托管服务端 API（release 构建同样需要） -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="knowledge_vault"
         android:name="${applicationName}"

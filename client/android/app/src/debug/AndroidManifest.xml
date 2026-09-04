@@ -4,4 +4,6 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 仅 debug 构建允许明文 HTTP，便于连本机 docker 测试；release 保持仅 HTTPS（NFR3） -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>
