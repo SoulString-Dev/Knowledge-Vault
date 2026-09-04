@@ -1,0 +1,20 @@
+# 可选服务：docker compose -f docker-compose.yml -f docker-compose.optional.yml --profile render up -d
+services:
+  render:        # JS 渲染兜底（worker 经 CDP 连接），约多占 ~1GB 内存
+    profiles: [render]
+    image: browserless/chrome
+    restart: unless-stopped
+
+  proxy:         # TLS 反向代理（需同目录 Caddyfile 与域名）
+    profiles: [proxy]
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+volumes:
+  caddy_data: {}

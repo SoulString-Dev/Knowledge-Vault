@@ -1,0 +1,52 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kb}
+      POSTGRES_DB: ${POSTGRES_DB:-kb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必填}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kb} -d ${POSTGRES_DB:-kb}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ../server
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"   # 启动自动迁移
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kb}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-kb}
+      APP_DATA_DIR: /data/app
+    volumes:
+      - app_data:/data/app
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build: ../server
+    command: python -m app.workers.runner
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kb}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-kb}
+      APP_DATA_DIR: /data/app
+      HF_HOME: /data/hf
+    volumes:
+      - app_data:/data/app
+      - hf_cache:/data/hf
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pg_data: {}
+  app_data: {}
+  hf_cache: {}

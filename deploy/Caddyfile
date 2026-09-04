@@ -1,0 +1,9 @@
+{$DOMAIN} {
+	reverse_proxy api:8000
+	# SSE（/ask 等）需要关闭缓冲
+	flush_interval -1
+	# 手动粘贴正文最大约 1.5MB，预留余量
+	request_body {
+		max_size 10MB
+	}
+}

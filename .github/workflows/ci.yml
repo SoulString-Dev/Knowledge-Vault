@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy app
+
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: kb
+          POSTGRES_PASSWORD: kb
+          POSTGRES_DB: kb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kb"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      SECRET_KEY: ci-secret-key-not-for-production
+      DATABASE_URL: postgresql+asyncpg://kb:kb@localhost:5432/kb
+      LLM_BASE_URL: http://localhost:11434/v1
+      LLM_API_KEY: ci-placeholder
+      LLM_MODEL: ci-model
+      APP_DATA_DIR: /tmp/kb-app-data
+      REGISTER_MODE: open
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run alembic upgrade head
+      - run: uv run pytest -q

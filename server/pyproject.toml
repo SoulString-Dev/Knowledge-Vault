@@ -1,0 +1,84 @@
+[project]
+name = "knowledge-vault"
+version = "0.1.0"
+description = "知识匣（Knowledge Vault）服务端：api + worker 同镜像"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "alembic>=1.13",
+    "asyncpg>=0.29",
+    "pgvector>=0.3.6",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "structlog>=24.4",
+    "bcrypt>=4.1",
+    "pyjwt>=2.8",
+    "httpx>=0.27",
+    "charset-normalizer>=3.3",
+    "trafilatura>=1.12",
+    "jieba>=0.42.1",
+    "openai>=1.35",
+]
+
+[project.optional-dependencies]
+embed = ["sentence-transformers>=3.0"]
+render = ["playwright>=1.45"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.uv]
+package = false
+
+# torch 统一走 CPU 轮子（本项目 embedding 为 CPU 推理，避免拉取 CUDA 全家桶）
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI 的依赖注入约定就是 `Depends()` 作默认值
+"app/api/*" = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_unused_ignores = false
+exclude = ["^alembic/", "^tests/"]
+
+[[tool.mypy.overrides]]
+module = [
+    "jieba.*",
+    "trafilatura.*",
+    "pgvector.*",
+    "sentence_transformers.*",
+    "bcrypt",
+    "asyncpg",
+    "uvicorn.*",
+    "playwright.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
