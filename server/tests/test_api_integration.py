@@ -14,9 +14,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import get_settings
+from app.core.ratelimit import SlidingWindowLimiter
 from app.db import Base, get_session
 from app.main import create_app
 from app.models import Article, Job
+from app.api import auth as auth_mod
 from app.services import embedder as embedder_mod
 from app.services import llm as llm_mod
 from app.workers import handlers as handlers_mod
@@ -101,6 +103,8 @@ def stub_services(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(embedder_mod, "encode_batch", fake_encode)
     monkeypatch.setattr(handlers_mod, "fetch_html", fake_fetch)
     monkeypatch.setattr(handlers_mod, "extract_content", fake_extract)
+    # 集成测试共享同一客户端 IP，替换为大额度限速器避免 429 干扰
+    monkeypatch.setattr(auth_mod, "_limiter", SlidingWindowLimiter(100_000))
 
 
 async def _register(client: httpx.AsyncClient, username: str | None = None) -> dict:
