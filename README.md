@@ -28,3 +28,30 @@ Knowledge-Vault/
 ├── deploy/    # docker-compose、.env、备份脚本
 └── docs/      # 设计文档
 ```
+
+## 开发（M1 服务端）
+
+前置工具：[uv](https://docs.astral.sh/uv/)（Python 由 uv 托管，无需单独安装）。
+
+```bash
+cd server
+uv sync                      # 安装依赖（生成 .venv 与 uv.lock）
+cp ../deploy/.env.example .env   # 填入 SECRET_KEY / LLM_* 等配置
+
+# 需要 PostgreSQL 16 + pgvector（可用 Docker 起一个）
+uv run alembic upgrade head
+
+uv run uvicorn app.main:app --reload          # API（/docs 开发默认开）
+uv run python -m app.workers.runner           # worker（任务流水线）
+
+uv run pytest -q          # 单元测试；集成测试需可用数据库，否则自动跳过
+uv run ruff check . && uv run ruff format --check .
+uv run mypy app
+```
+
+说明：
+
+- worker 完整运行需要 embedding 依赖与模型：`uv sync --extra embed`（首次约 2.3GB 下载）；仅调试 API 可省略，embed 任务会以明确错误失败。
+- JS 渲染兜底为可选：`uv sync --extra render` 并配置 `PLAYWRIGHT_CDP_URL`。
+- 一键部署见 `deploy/`（`docker compose up -d`，api 启动时自动执行迁移）。
+
