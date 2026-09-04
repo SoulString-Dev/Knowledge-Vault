@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import BigInteger, Boolean, DateTime, String
+from sqlalchemy import BigInteger, Boolean, DateTime, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,7 +25,7 @@ class User(Base):
         Boolean, nullable=False, default=True, server_default="true"
     )
     settings: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, default=dict, server_default="'{}'"
+        JSONB, nullable=False, default=dict, server_default=text("'{}'")
     )  # 预留：个性化配置
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"

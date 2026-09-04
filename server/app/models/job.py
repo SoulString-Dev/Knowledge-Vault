@@ -32,7 +32,7 @@ class Job(Base):
         Integer, nullable=False, default=3, server_default="3"
     )
     payload: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, default=dict, server_default="'{}'"
+        JSONB, nullable=False, default=dict, server_default=text("'{}'")
     )
     error: Mapped[str | None] = mapped_column(Text)
     locked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))

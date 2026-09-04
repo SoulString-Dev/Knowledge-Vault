@@ -30,9 +30,9 @@ class Annotation(Base):
     anchor: Mapped[Any] = mapped_column(JSONB, nullable=True)
     note: Mapped[str | None] = mapped_column(Text)  # 手写内容（高亮可为空）
     ai_result: Mapped[str | None] = mapped_column(Text)  # LLM 对选中片段的产出
-    color: Mapped[str | None] = mapped_column(String(8), server_default="'#ffd54f'")
+    color: Mapped[str | None] = mapped_column(String(8), server_default=text("'#ffd54f'"))
     # done | processing | failed（AI 批注用）
-    status: Mapped[str] = mapped_column(String(16), server_default="'done'")
+    status: Mapped[str] = mapped_column(String(16), server_default=text("'done'"))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
