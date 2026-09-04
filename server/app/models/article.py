@@ -69,8 +69,8 @@ class Article(Base):
     snapshot_path: Mapped[str | None] = mapped_column(Text)
     # jieba 分词后写 simple tsvector（worker 维护）
     search_tsv: Mapped[Any] = mapped_column(TSVECTOR, nullable=True)
-    # bge-m3 1024 维；换模型需重嵌入（ADR-6）
-    embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=True)
+    # bge-small-zh-v1.5 512 维；换模型需重嵌入（ADR-6）
+    embedding: Mapped[Any] = mapped_column(Vector(512), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"
     )

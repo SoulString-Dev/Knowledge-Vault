@@ -80,5 +80,6 @@ async def encode_one(text: str) -> list[float]:
 
 # 设计说明：架构文档 4.6 写「api 不加载模型」，但 8.2 的语义检索读路径要求
 # api 对查询词向量化——两者矛盾。此处按读路径实现：api 进程首次执行
-# semantic/hybrid 检索时懒加载同一模型。内存影响：bge-m3 双进程约需 6GB；
-# 4GB 机器建议 EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5（512 维，需重嵌入）。
+# semantic/hybrid 检索时懒加载同一模型。内存影响（api + worker 各一份）：
+# 默认 bge-small-zh-v1.5 每份 ~150MB，总量可控；切 bge-m3 每份 ~2.3GB，
+# 总峰值约 6GB，仅在内存充裕时作为质量升级项使用。

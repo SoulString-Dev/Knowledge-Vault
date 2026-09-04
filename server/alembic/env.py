@@ -1,5 +1,4 @@
 import asyncio
-from logging.config import fileConfig
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -11,9 +10,7 @@ from app.models import Base
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
-
-if config.config_file_name is not None and not context.is_offline_mode():
-    fileConfig(config.config_file_name)
+# 注意：不调用 fileConfig——alembic.ini 是精简版，无 logging 配置段；日志交给应用侧统一管理
 
 target_metadata = Base.metadata
 

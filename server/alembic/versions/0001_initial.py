@@ -85,7 +85,7 @@ def upgrade() -> None:
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column("snapshot_path", sa.Text(), nullable=True),
         sa.Column("search_tsv", pg.TSVECTOR(), nullable=True),
-        sa.Column("embedding", Vector(1024), nullable=True),
+        sa.Column("embedding", Vector(512), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),

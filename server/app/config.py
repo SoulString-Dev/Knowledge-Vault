@@ -33,9 +33,9 @@ class Settings(BaseSettings):
     llm_model: str
     llm_timeout: int = 60
 
-    # Embedding（服务器本地推理）
-    embedding_model: str = "BAAI/bge-m3"
-    embedding_dim: int = 1024
+    # Embedding（服务器本地推理；默认轻量档以满足 2GB 内存预算）
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    embedding_dim: int = 512
     hf_endpoint: str | None = None
 
     # 抓取

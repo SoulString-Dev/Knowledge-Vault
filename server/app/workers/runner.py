@@ -230,7 +230,7 @@ async def run() -> None:
         except NotImplementedError:  # Windows ProactorEventLoop
             signal.signal(sig, _set_stop)
 
-    # 模型预热：不阻塞任务领取（首次启动含 ~2.3GB 下载，进度见 HF 日志）
+    # 模型预热：不阻塞任务领取（首次启动含 ~130MB 模型下载，进度见 HF 日志）
     preload_task = asyncio.create_task(embedder_mod.preload())
 
     tasks = [asyncio.create_task(_worker_loop(factory, stop)) for _ in range(s.worker_concurrency)]
