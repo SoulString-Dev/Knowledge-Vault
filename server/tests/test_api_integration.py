@@ -138,7 +138,10 @@ async def _run_jobs_tolerant(factory) -> None:
                         update(Job)
                         .where(Job.id == job.id)
                         .values(
-                            status="failed", error=str(e)[:2000], attempts=99, finished_at=sa_func.now()
+                            status="failed",
+                            error=str(e)[:2000],
+                            attempts=99,
+                            finished_at=sa_func.now(),
                         )
                     )
                     await s2.execute(
