@@ -133,12 +133,21 @@ async def _run_jobs_tolerant(factory) -> None:
             except Exception as e:
                 await session.rollback()
                 async with factory() as s2:
+                    # 与真实 runner 语义一致：job 最终失败 → 同步把 article 置为 failed
                     await s2.execute(
                         update(Job)
                         .where(Job.id == job.id)
                         .values(
-                            status="failed", error=str(e), attempts=99, finished_at=sa_func.now()
+                            status="failed", error=str(e)[:2000], attempts=99, finished_at=sa_func.now()
                         )
+                    )
+                    await s2.execute(
+                        update(Article)
+                        .where(
+                            Article.id == job.article_id,
+                            Article.status.in_(["pending", "processing"]),
+                        )
+                        .values(status="failed", error=str(e)[:2000])
                     )
                     await s2.commit()
 
@@ -391,8 +400,19 @@ async def test_extract_falls_back_to_render_on_antibot(
     async def fake_render(url: str) -> str:
         return rendered_html
 
+    def fake_extract_rendered(html: str, url: str) -> dict[str, str]:
+        return {
+            "title": "渲染后的标题",
+            "author": "测试作者",
+            "date": "2026-09-05T00:00:00+00:00",
+            "language": "zh",
+            "text": "这是浏览器渲染得到的足够长的正文内容，用于验证渲染兜底链路。" * 30,
+        }
+
     monkeypatch.setattr(handlers_mod, "fetch_html", blocked_fetch)
     monkeypatch.setattr(handlers_mod, "render_with_cdp", fake_render)
+    # 覆盖 autouse 桩：渲染路径的抽取结果应来自渲染后的 HTML
+    monkeypatch.setattr(handlers_mod, "extract_content", fake_extract_rendered)
     try:
         tokens = await _register(client)
         headers = await _auth_headers(tokens)
