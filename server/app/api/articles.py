@@ -217,6 +217,8 @@ async def reanalyze(
     session: AsyncSession = Depends(get_session),
 ) -> ArticleOut:
     article = await _get_own_article(session, user.id, article_id)
+    if not article.content_md and not article.content_text:
+        raise err(C.INVALID_STATE, "该卡片尚未抓取到正文，请使用「重试」先抓取，而不是重新分析")
     article.status = "processing"
     article.error = None
     await jobqueue.enqueue_job(session, type="analyze", user_id=user.id, article_id=article.id)
@@ -238,12 +240,18 @@ async def retry_article(
         article.content_text = md_to_text(body.text) or body.text
         article.word_count = len(body.text)
         article.status = "processing"
+        job_type = "analyze"
     else:
         if article.status not in {"failed", "pending"}:
-            raise err(C.INVALID_STATE, "仅失败或待处理的卡片可重试抓取")
-        article.status = "pending"
-    article.error = None
-    job_type = "analyze" if body.text else "extract"
+            raise err(C.INVALID_STATE, "仅失败或待处理的卡片可重试")
+        article.error = None
+        if article.content_md:
+            # 正文已在（此前抓取成功、分析/向量化阶段失败）：重跑分析而非重新抓取
+            article.status = "processing"
+            job_type = "analyze"
+        else:
+            article.status = "pending"
+            job_type = "extract"
     await jobqueue.enqueue_job(session, type=job_type, user_id=user.id, article_id=article.id)
     await session.commit()
     return ArticleOut.model_validate(article)

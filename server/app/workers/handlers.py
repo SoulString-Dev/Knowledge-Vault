@@ -9,7 +9,11 @@ import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import JobGone, JobPermanentError, JobTransientError
+from app.core.errors import (
+    AntiBotBlockedError,
+    JobGone,
+    JobPermanentError,
+)
 from app.models import Article, ArticleTag, Tag
 from app.services import embedder as embedder_mod
 from app.services import llm
@@ -65,6 +69,9 @@ async def _render_fallback(url: str) -> str:
 
 
 async def handle_extract(session: AsyncSession, job: JobView) -> None:
+    from app.config import get_settings
+
+    s = get_settings()
     article = await _get_article(session, job.article_id)
     if article.content_md:
         # 幂等：已抽取过（重试安全），确保后续任务在队即可
@@ -73,15 +80,31 @@ async def handle_extract(session: AsyncSession, job: JobView) -> None:
                 session, type="analyze", user_id=article.user_id, article_id=article.id
             )
         return
+
+    # 三种情况转渲染兜底（4.4：质量不足、抽取失败、抓取被反爬拦截）：
+    content = None
+    html: str | None = None
+    final_url = article.url
     try:
         html, final_url = await fetch_html(article.url)
+    except AntiBotBlockedError:
+        if not s.playwright_cdp_url:
+            raise  # 未配置兜底：保持 403 原始指引信息
+    else:
         try:
             content = extract_content(html, final_url)
         except QualityGateError:
-            html = await _render_fallback(article.url)
-            content = extract_content(html, final_url)
-    except (JobPermanentError, JobTransientError):
-        raise
+            content = None  # 抽到了但太短 → 渲染重抽
+        except JobPermanentError:
+            if not s.playwright_cdp_url:
+                raise  # 抽取失败（如拿到 JS 壳子）且无兜底
+            content = None
+
+    if content is None:
+        html = await _render_fallback(article.url)
+        content = extract_content(html, final_url)
+
+    assert html is not None  # content 非 None 时 html 必然已在 fetch 或 render 中取得
     article.title = content.get("title") or article.title
     article.author = content.get("author")
     article.published_at = parse_published_at(content.get("date"))
@@ -104,7 +127,7 @@ async def handle_analyze(session: AsyncSession, job: JobView) -> None:
             await enqueue_job(session, type="embed", user_id=article.user_id, article_id=article.id)
         return
     if not article.content_text:
-        raise JobPermanentError("正文为空，无法分析")
+        raise JobPermanentError("正文为空，无法分析：该卡片尚未成功抓取正文，请先「重试」抓取")
     summary, tags = await llm.summarize_and_tags(article.title or article.url, article.content_text)
     article.summary = summary
     # 打标：优先沿用用户已有标签的措辞（FR2.2）

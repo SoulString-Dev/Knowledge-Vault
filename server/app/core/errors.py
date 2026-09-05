@@ -64,5 +64,10 @@ class JobPermanentError(Exception):
     """任务级不可重试错误：直接标记 failed（分析失败等业务失败也走这里）。"""
 
 
+class AntiBotBlockedError(JobPermanentError):
+    """抓取被目标站点反爬拦截（如 403 + JS 挑战）：
+    配置了渲染兜底时应转 browserless 重试，未配置时按永久失败处理。"""
+
+
 class JobGone(Exception):
     """任务目标（article）已不存在：标记 done 跳过（幂等约定）。"""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import gzip
 import hashlib
@@ -15,7 +16,7 @@ import httpx
 import structlog
 
 from app.config import get_settings
-from app.core.errors import C, JobPermanentError, JobTransientError, err
+from app.core.errors import AntiBotBlockedError, C, JobPermanentError, JobTransientError, err
 
 log = structlog.get_logger()
 
@@ -125,7 +126,7 @@ async def fetch_html(
                 continue
             if resp.status_code >= 400:
                 if resp.status_code == 403:
-                    raise JobPermanentError(
+                    raise AntiBotBlockedError(
                         "目标站点反爬拦截（HTTP 403）：该站点可能需要浏览器执行 JS 挑战，"
                         "可在服务端配置 JS 渲染兜底（PLAYWRIGHT_CDP_URL + render profile）后重试，"
                         "或使用手动粘贴文本补救"
@@ -227,7 +228,10 @@ async def render_with_cdp(url: str) -> str:
             page = await context.new_page()
             try:
                 await page.goto(url, timeout=s.fetch_timeout * 1000, wait_until="domcontentloaded")
-                await page.wait_for_timeout(1500)
+                # SPA / 反爬挑战需要执行时间：优先等网络空闲，超时则以已渲染内容继续
+                with contextlib.suppress(Exception):
+                    await page.wait_for_load_state("networkidle", timeout=8_000)
+                await page.wait_for_timeout(1_500)
                 return await page.content()
             finally:
                 await context.close()

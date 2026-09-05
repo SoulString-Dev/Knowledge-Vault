@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.api import auth as auth_mod
 from app.config import get_settings
+from app.core.errors import AntiBotBlockedError
 from app.core.ratelimit import SlidingWindowLimiter
 from app.core.security import hash_password
 from app.db import Base, get_session
@@ -106,6 +107,40 @@ def stub_services(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(handlers_mod, "extract_content", fake_extract)
     # 集成测试共享同一客户端 IP，替换为大额度限速器避免 429 干扰
     monkeypatch.setattr(auth_mod, "_limiter", SlidingWindowLimiter(100_000))
+
+
+async def _run_jobs_tolerant(factory) -> None:
+    """手动执行排队任务；handler 失败时标记 failed 并继续（用于验证失败路径）。"""
+    from sqlalchemy import func as sa_func
+    from sqlalchemy import update
+
+    from app.workers.runner import CLAIM_SQL
+
+    while True:
+        async with factory() as session:
+            row = (await session.execute(CLAIM_SQL)).mappings().first()
+            if row is None:
+                return
+            job = handlers_mod.JobView(row)
+            try:
+                await handlers_mod.HANDLERS[job.type](session, job)
+                await session.execute(
+                    update(Job)
+                    .where(Job.id == job.id)
+                    .values(status="done", finished_at=sa_func.now())
+                )
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                async with factory() as s2:
+                    await s2.execute(
+                        update(Job)
+                        .where(Job.id == job.id)
+                        .values(
+                            status="failed", error=str(e), attempts=99, finished_at=sa_func.now()
+                        )
+                    )
+                    await s2.commit()
 
 
 async def _register(client: httpx.AsyncClient, username: str | None = None) -> dict:
@@ -333,3 +368,84 @@ async def test_refresh_reuse_revokes_all(client: httpx.AsyncClient) -> None:
     # 新 refresh 也已被连带吊销
     with_new = await client.post("/api/v1/auth/refresh", json={"refresh_token": new_refresh})
     assert with_new.status_code == 401
+
+
+async def test_extract_falls_back_to_render_on_antibot(
+    client: httpx.AsyncClient, db_engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """抓取被反爬拦截（403）且配置了渲染兜底：自动转 browserless 渲染重抽并完成流水线。"""
+    settings = get_settings()
+    original_cdp = settings.playwright_cdp_url
+    settings.playwright_cdp_url = "http://render:3000"
+
+    async def blocked_fetch(url: str) -> tuple[str, str]:
+        raise AntiBotBlockedError("目标站点反爬拦截（HTTP 403）")
+
+    rendered_html = (
+        "<html><head><title>渲染后的标题</title></head><body>"
+        + "<p>"
+        + "这是浏览器渲染得到的足够长的正文内容，" * 40
+        + "</p></body></html>"
+    )
+
+    async def fake_render(url: str) -> str:
+        return rendered_html
+
+    monkeypatch.setattr(handlers_mod, "fetch_html", blocked_fetch)
+    monkeypatch.setattr(handlers_mod, "render_with_cdp", fake_render)
+    try:
+        tokens = await _register(client)
+        headers = await _auth_headers(tokens)
+        factory = async_sessionmaker(db_engine, expire_on_commit=False)
+        resp = await client.post(
+            "/api/v1/articles", headers=headers, json={"url": "https://blocked.example.com/a"}
+        )
+        assert resp.status_code == 202
+        article_id = resp.json()["id"]
+
+        await _run_jobs_tolerant(factory)
+
+        detail = await client.get(f"/api/v1/articles/{article_id}", headers=headers)
+        body = detail.json()
+        assert body["status"] == "ready", body.get("error")
+        assert body["title"] == "渲染后的标题"
+    finally:
+        settings.playwright_cdp_url = original_cdp
+
+
+async def test_reanalyze_rejected_when_no_content(
+    client: httpx.AsyncClient, db_engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """抓取失败（403 且无渲染兜底）→ failed；reanalyze 应 409 引导走重试；retry 重新入队抓取。"""
+    settings = get_settings()
+    original_cdp = settings.playwright_cdp_url
+    settings.playwright_cdp_url = None
+
+    async def blocked_fetch(url: str) -> tuple[str, str]:
+        raise AntiBotBlockedError("目标站点反爬拦截（HTTP 403）")
+
+    monkeypatch.setattr(handlers_mod, "fetch_html", blocked_fetch)
+    try:
+        tokens = await _register(client)
+        headers = await _auth_headers(tokens)
+        factory = async_sessionmaker(db_engine, expire_on_commit=False)
+        resp = await client.post(
+            "/api/v1/articles", headers=headers, json={"url": "https://blocked.example.com/b"}
+        )
+        article_id = resp.json()["id"]
+        await _run_jobs_tolerant(factory)
+
+        detail = await client.get(f"/api/v1/articles/{article_id}", headers=headers)
+        assert detail.json()["status"] == "failed"
+        assert "反爬" in (detail.json()["error"] or "")
+
+        # 无正文的卡片不允许重新分析
+        r = await client.post(f"/api/v1/articles/{article_id}/reanalyze", headers=headers)
+        assert r.status_code == 409
+        assert r.json()["code"] == "INVALID_STATE"
+
+        # retry（无文本）→ 重新入队 extract → 再次失败（仍 403）
+        retry = await client.post(f"/api/v1/articles/{article_id}/retry", headers=headers, json={})
+        assert retry.status_code == 200
+    finally:
+        settings.playwright_cdp_url = original_cdp

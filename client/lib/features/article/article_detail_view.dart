@@ -126,6 +126,12 @@ class _ArticleDetailViewState extends ConsumerState<ArticleDetailView> {
     await _load(silent: true);
   }
 
+  Future<void> _retry() async {
+    await _api.retryArticle(_detail!.article.id);
+    _pollIndex = 0;
+    await _load(silent: true);
+  }
+
   Future<void> _delete() async {
     final l10n = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
@@ -164,6 +170,8 @@ class _ArticleDetailViewState extends ConsumerState<ArticleDetailView> {
             await _editField(editTitle: true);
           case 'edit_summary':
             await _editField(editTitle: false);
+          case 'retry':
+            await _retry();
           case 'reanalyze':
             await _reanalyze();
           case 'delete':
@@ -173,6 +181,8 @@ class _ArticleDetailViewState extends ConsumerState<ArticleDetailView> {
       itemBuilder: (context) => [
         PopupMenuItem(value: 'edit_title', child: Text(l10n.editTitle)),
         PopupMenuItem(value: 'edit_summary', child: Text(l10n.editSummary)),
+        if (article.status == 'failed')
+          PopupMenuItem(value: 'retry', child: Text(l10n.retry)),
         if (article.status == 'failed' || article.status == 'ready')
           PopupMenuItem(value: 'reanalyze', child: Text(l10n.reanalyze)),
         PopupMenuItem(value: 'delete', child: Text(l10n.delete)),
