@@ -92,7 +92,10 @@ def decode_html(data: bytes, content_type: str) -> str:
 
 # 与常规浏览器一致的请求头（FR1.2）：自报家门的爬虫 UA 会被大量站点直接 403
 _BROWSER_HEADERS = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
 
