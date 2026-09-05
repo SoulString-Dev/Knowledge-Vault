@@ -1,0 +1,91 @@
+# 客户端自动打包：打 v* tag 自动发布 Release；也可在 Actions 页手动触发（workflow_dispatch）。
+# 产物：Android APK（debug key 签名，测试用）+ Windows x64 zip。
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: 解析构建版本号（tag 优先，其次 pubspec）
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            echo "BUILD_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "BUILD_NAME=$(grep -m1 '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//')" >> "$GITHUB_ENV"
+          fi
+      - run: flutter pub get
+      - run: flutter build apk --release --build-name=$BUILD_NAME
+      - name: 重命名产物
+        run: cp build/app/outputs/flutter-apk/app-release.apk knowledge_vault-${BUILD_NAME}-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: client/knowledge_vault-*-android.apk
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      # Windows 桌面插件需要 symlink 权限（本地对应「开发者模式」）
+      - name: 开启开发者模式
+        run: reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /v AllowDevelopmentWithoutDevLicense /t REG_DWORD /d 1 /f
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: 解析构建版本号
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            echo "BUILD_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "BUILD_NAME=$(grep -m1 '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//')" >> "$GITHUB_ENV"
+          fi
+      - run: flutter pub get
+      - run: flutter build windows --release --build-name=$BUILD_NAME
+        shell: bash
+      - name: 打包 zip
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath knowledge_vault-${env:BUILD_NAME}-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: client/knowledge_vault-*-windows-x64.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
