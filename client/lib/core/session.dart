@@ -62,30 +62,38 @@ class SessionController extends AsyncNotifier<SessionState> {
     final storage = ref.watch(storageProvider);
     final api = ref.watch(vaultApiProvider);
     final client = ref.watch(apiClientProvider);
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(() async {
+    // 不走 AsyncLoading：失败时保持 loggedOut 态（避免 redirect 误判为 loading 卡启动页），
+    // 错误 rethrow 由页面自行展示。
+    try {
       await client.configure(baseUrl: baseUrl);
       final tokens = await api.login(username, password);
       await client.setTokens(tokens);
       await storage.writeBaseUrl(baseUrl);
       final user = await api.me();
-      return SessionState(status: SessionStatus.loggedIn, user: user);
-    });
+      state = AsyncData(SessionState(status: SessionStatus.loggedIn, user: user));
+    } on Object {
+      await client.clearTokens();
+      state = const AsyncData(SessionState(status: SessionStatus.loggedOut));
+      rethrow;
+    }
   }
 
   Future<void> register(String baseUrl, String username, String password, String? inviteCode) async {
     final storage = ref.watch(storageProvider);
     final api = ref.watch(vaultApiProvider);
     final client = ref.watch(apiClientProvider);
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(() async {
+    try {
       await client.configure(baseUrl: baseUrl);
       final tokens = await api.register(username, password, inviteCode);
       await client.setTokens(tokens);
       await storage.writeBaseUrl(baseUrl);
       final user = await api.me();
-      return SessionState(status: SessionStatus.loggedIn, user: user);
-    });
+      state = AsyncData(SessionState(status: SessionStatus.loggedIn, user: user));
+    } on Object {
+      await client.clearTokens();
+      state = const AsyncData(SessionState(status: SessionStatus.loggedOut));
+      rethrow;
+    }
   }
 
   Future<void> logout() async {
