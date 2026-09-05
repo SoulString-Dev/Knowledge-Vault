@@ -90,10 +90,20 @@ def decode_html(data: bytes, content_type: str) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-async def fetch_html(url: str) -> tuple[str, str]:
-    """抓取：常规 UA、跟随重定向、超时与自动重试。返回 (html, 最终 url)。
+# 与常规浏览器一致的请求头（FR1.2）：自报家门的爬虫 UA 会被大量站点直接 403
+_BROWSER_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+
+
+async def fetch_html(
+    url: str, *, transport: httpx.AsyncBaseTransport | None = None
+) -> tuple[str, str]:
+    """抓取：常规浏览器 UA 与请求头、跟随重定向、超时与自动重试。返回 (html, 最终 url)。
 
     4xx（除 429）视为永久失败；5xx / 429 / 网络错误重试后抛 JobTransientError。
+    transport 参数仅供测试注入（httpx.MockTransport）。
     """
     s = get_settings()
     last: Exception | None = None
@@ -104,13 +114,20 @@ async def fetch_html(url: str) -> tuple[str, str]:
             async with httpx.AsyncClient(
                 follow_redirects=True,
                 timeout=float(s.fetch_timeout),
-                headers={"User-Agent": s.fetch_ua},
+                headers={"User-Agent": s.fetch_ua, **_BROWSER_HEADERS},
+                transport=transport,
             ) as client:
                 resp = await client.get(url)
             if resp.status_code >= 500 or resp.status_code == 429:
                 last = RuntimeError(f"HTTP {resp.status_code}")
                 continue
             if resp.status_code >= 400:
+                if resp.status_code == 403:
+                    raise JobPermanentError(
+                        "目标站点反爬拦截（HTTP 403）：该站点可能需要浏览器执行 JS 挑战，"
+                        "可在服务端配置 JS 渲染兜底（PLAYWRIGHT_CDP_URL + render profile）后重试，"
+                        "或使用手动粘贴文本补救"
+                    )
                 raise JobPermanentError(f"目标页面返回 HTTP {resp.status_code}")
             content_type = resp.headers.get("content-type", "")
             if content_type and not content_type.lower().startswith(
