@@ -3,6 +3,10 @@ services:
   render:        # JS 渲染兜底（worker 经 CDP 连接），约多占 ~1GB 内存
     profiles: [render]
     image: browserless/chrome
+    environment:
+      # browserless v2 需要 token；测试环境固定一个，配合
+      # PLAYWRIGHT_CDP_URL=http://render:3000?token=kb-render 使用
+      TOKEN: kb-render
     restart: unless-stopped
 
   proxy:         # TLS 反向代理（需同目录 Caddyfile 与域名）
