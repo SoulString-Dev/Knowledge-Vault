@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     fetch_timeout: int = 20
     fetch_retries: int = 2
     playwright_cdp_url: str | None = None
+    # 渲染上下文注入登录 Cookie（"k=v; k2=v2"），用于知乎等要求登录态的站点；
+    # 凭据留在自托管服务器，勿提交到仓库
+    render_cookies: str | None = None
+    render_cookies_domain: str | None = None  # 如 .zhihu.com
 
     # Worker
     worker_concurrency: int = 2

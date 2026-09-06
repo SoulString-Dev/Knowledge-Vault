@@ -160,34 +160,82 @@ def _doc_get(doc: object, key: str, default: str | None = None) -> str | None:
     return value if value is None else str(value)
 
 
-def extract_content(html: str, url: str) -> dict[str, str | None]:
-    """trafilatura 抽取：产出标题 / 作者 / 发布时间 / 正文 Markdown。"""
-    from trafilatura import bare_extraction
+def _wrap_fragment(html: str) -> str:
+    """trafilatura 2.x 对缺少完整文档结构的片段判空：统一包壳。"""
+    if "<html" in html[:500].lower():
+        return html
+    return '<html><head><meta charset="utf-8"></head><body>' + html + "</body></html>"
 
+
+def _trafilatura_extract(html: str, url: str) -> tuple[str | None, object | None]:
+    """正文（markdown，经 extract() 序列化——2.x 的 bare_extraction 不产出 text 字段）
+    + 元数据（bare_extraction 的 Document）。"""
+    from trafilatura import bare_extraction, extract
+
+    wrapped = _wrap_fragment(html)
+    meta = bare_extraction(
+        wrapped,
+        url=url,
+        favor_recall=True,
+        with_metadata=True,
+        include_tables=True,
+    )
+    text = extract(
+        wrapped,
+        url=url,
+        favor_recall=True,
+        output_format="markdown",
+        include_tables=True,
+        include_images=False,
+        include_links=False,
+    )
+    return (text.strip() if text else None), meta
+
+
+def _readability_extract(html: str) -> str | None:
+    """readability-lxml 修剪主内容区（3.1 预留的兜底）：返回修剪后的完整 HTML 或 None。"""
     try:
-        doc = bare_extraction(
-            html,
-            url=url,
-            favor_recall=True,
-            output_format="markdown",
-            with_metadata=True,
-            include_tables=True,
-            include_images=False,
-            include_links=False,
-        )
+        from readability import Document as ReadabilityDocument
+    except ImportError:
+        return None
+    try:
+        summary = ReadabilityDocument(html).summary(html_partial=False)
+    except Exception:
+        return None
+    if summary and len(summary) > _MIN_CONTENT_CHARS:
+        return summary
+    return None
+
+
+def extract_content(html: str, url: str) -> dict[str, str | None]:
+    """正文抽取：trafilatura 优先；不足时用 readability 修剪主内容区再交给
+    trafilatura（B站图文等特殊 DOM 的兜底链，架构文档 3.1）。"""
+    try:
+        text, meta = _trafilatura_extract(html, url)
     except Exception as e:  # 抽取器崩溃按永久失败处理
         raise JobPermanentError(f"正文抽取异常：{e}") from e
-    if not doc:
+
+    best_text = (text or "").strip()
+    if len(best_text) < _MIN_CONTENT_CHARS:
+        cleaned = _readability_extract(html)
+        if cleaned:
+            try:
+                text2, meta2 = _trafilatura_extract(cleaned, url)
+            except Exception as e:  # pragma: no cover - 二次抽取崩溃同样按永久失败
+                raise JobPermanentError(f"正文抽取异常：{e}") from e
+            if text2 and len(text2.strip()) > len(best_text):
+                best_text, meta = text2.strip(), meta2
+
+    if not best_text:
         raise JobPermanentError("未能抽取到正文")
-    text = (_doc_get(doc, "text") or "").strip()
-    if len(text) < _MIN_CONTENT_CHARS:
-        raise QualityGateError(f"正文过短（{len(text)} 字符）")
+    if len(best_text) < _MIN_CONTENT_CHARS:
+        raise QualityGateError(f"正文过短（{len(best_text)} 字符）")
     return {
-        "title": _doc_get(doc, "title"),
-        "author": _doc_get(doc, "author"),
-        "date": _doc_get(doc, "date"),
-        "language": _doc_get(doc, "language"),
-        "text": text,
+        "title": _doc_get(meta, "title"),
+        "author": _doc_get(meta, "author"),
+        "date": _doc_get(meta, "date"),
+        "language": _doc_get(meta, "language"),
+        "text": best_text,
     }
 
 
@@ -225,6 +273,23 @@ async def render_with_cdp(url: str) -> str:
         async with async_playwright() as p:
             browser = await p.chromium.connect_over_cdp(s.playwright_cdp_url)
             context = await browser.new_context(user_agent=s.fetch_ua)
+            if s.render_cookies:
+                if not s.render_cookies_domain:
+                    raise JobPermanentError(
+                        "配置了 RENDER_COOKIES 但缺少 RENDER_COOKIES_DOMAIN（如 .zhihu.com）"
+                    )
+                cookies = [
+                    {
+                        "name": pair.split("=", 1)[0].strip(),
+                        "value": pair.split("=", 1)[1].strip(),
+                        "domain": s.render_cookies_domain,
+                        "path": "/",
+                    }
+                    for pair in s.render_cookies.split(";")
+                    if "=" in pair
+                ]
+                if cookies:
+                    await context.add_cookies(cookies)
             page = await context.new_page()
             try:
                 await page.goto(url, timeout=s.fetch_timeout * 1000, wait_until="domcontentloaded")
