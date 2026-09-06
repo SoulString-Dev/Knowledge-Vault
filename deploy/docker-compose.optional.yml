@@ -4,8 +4,8 @@ services:
     profiles: [render]
     image: browserless/chrome
     environment:
-      # browserless v2 需要 token；测试环境固定一个，配合
-      # PLAYWRIGHT_CDP_URL=http://render:3000?token=kb-render 使用
+      # browserless v2 需要 token；配合
+      # PLAYWRIGHT_CDP_URL=ws://render:3000?token=kb-render 使用（ws 直连，token 留在升级请求上）
       TOKEN: kb-render
     restart: unless-stopped
 
