@@ -388,7 +388,7 @@ async def test_extract_falls_back_to_render_on_antibot(
     """抓取被反爬拦截（403）且配置了渲染兜底：自动转 browserless 渲染重抽并完成流水线。"""
     settings = get_settings()
     original_cdp = settings.playwright_cdp_url
-    settings.playwright_cdp_url = "http://render:3000"
+    settings.playwright_cdp_url = "ws://render:3000?token=kb-render"
 
     async def blocked_fetch(url: str) -> tuple[str, str]:
         raise AntiBotBlockedError("目标站点反爬拦截（HTTP 403）")
