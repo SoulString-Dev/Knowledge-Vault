@@ -7,6 +7,7 @@ import contextlib
 import datetime as dt
 import gzip
 import hashlib
+import json
 import re
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -258,6 +259,70 @@ def parse_published_at(raw: str | None) -> dt.datetime | None:
         return None
 
 
+def _parse_cookie_pairs(raw: str) -> list[dict[str, str]]:
+    """'k=v; k2=v2' → playwright cookie 列表（值中的 | / = 安全，按首个 = 切分）。"""
+    cookies: list[dict[str, str]] = []
+    for pair in raw.split(";"):
+        if "=" not in pair:
+            continue
+        name, value = pair.split("=", 1)
+        if name.strip() and value.strip():
+            cookies.append({"name": name.strip(), "value": value.strip()})
+    return cookies
+
+
+def _host_matches(host: str, domain: str) -> bool:
+    if not host or not domain:
+        return False
+    d = domain.lstrip(".")
+    return host == d or host.endswith("." + d)
+
+
+def _select_cookies_for(url: str, s: object) -> list[dict[str, str]]:
+    """按目标 URL 主机名匹配域名作用域（RENDER_COOKIES_JSON 多域优先，兼容单域配置）。
+    返回的每个 cookie 已附带 domain，注入时补 path 即可。"""
+    from urllib.parse import urlsplit
+
+    host = urlsplit(url).hostname or ""
+    out: list[dict[str, str]] = []
+    if s.render_cookies_json:  # type: ignore[attr-defined]
+        try:
+            entries = json.loads(s.render_cookies_json)  # type: ignore[attr-defined]
+        except json.JSONDecodeError as e:
+            raise JobPermanentError(f"RENDER_COOKIES_JSON 不是合法 JSON：{e}") from e
+        for entry in entries if isinstance(entries, list) else []:
+            domain = str((entry or {}).get("domain") or "").strip()
+            if _host_matches(host, domain):
+                for c in _parse_cookie_pairs(str((entry or {}).get("cookies") or "")):
+                    out.append({**c, "domain": domain})
+    if s.render_cookies:  # type: ignore[attr-defined]
+        if not s.render_cookies_domain:  # type: ignore[attr-defined]
+            raise JobPermanentError(
+                "配置了 RENDER_COOKIES 但缺少 RENDER_COOKIES_DOMAIN（如 .zhihu.com）"
+            )
+        if _host_matches(host, s.render_cookies_domain):  # type: ignore[attr-defined]
+            for c in _parse_cookie_pairs(s.render_cookies):  # type: ignore[attr-defined]
+                out.append({**c, "domain": s.render_cookies_domain})  # type: ignore[attr-defined]
+    return out
+
+
+def _detect_render_block(html: str) -> str | None:
+    """识别渲染产物中的站点风控页；返回可行动的错误信息，正常页面返回 None。"""
+    trimmed = html.lstrip()
+    head = html[:8000]
+    if "risk-captcha" in head or "验证码_" in html[:2000]:
+        return (
+            "目标站点弹出风控验证码：建议通过 RENDER_COOKIES_JSON 注入该站点的登录 Cookie"
+            "（如 B站 SESSDATA / buvid3），或稍后重试；也可使用手动粘贴补救"
+        )
+    if trimmed.startswith("{") and '"error"' in trimmed[:400]:
+        return (
+            "渲染后站点仍返回错误响应（需要配置 RENDER_COOKIES_JSON 注入登录 Cookie，"
+            f"或已触发站点风控）：{trimmed[:200]}"
+        )
+    return None
+
+
 async def render_with_cdp(url: str) -> str:
     """JS 渲染兜底：经 CDP 连接 browserless（仅配置 PLAYWRIGHT_CDP_URL 时启用）。"""
     s = get_settings()
@@ -273,28 +338,10 @@ async def render_with_cdp(url: str) -> str:
         async with async_playwright() as p:
             browser = await p.chromium.connect_over_cdp(s.playwright_cdp_url)
             context = await browser.new_context(user_agent=s.fetch_ua)
-            if s.render_cookies:
-                if not s.render_cookies_domain:
-                    raise JobPermanentError(
-                        "配置了 RENDER_COOKIES 但缺少 RENDER_COOKIES_DOMAIN（如 .zhihu.com）"
-                    )
-                cookies = [
-                    {
-                        "name": pair.split("=", 1)[0].strip(),
-                        "value": pair.split("=", 1)[1].strip(),
-                        "domain": s.render_cookies_domain,
-                        "path": "/",
-                    }
-                    for pair in s.render_cookies.split(";")
-                    if "=" in pair
-                ]
-                if cookies:
-                    await context.add_cookies(cookies)
-                    log.info(
-                        "render cookies injected",
-                        domain=s.render_cookies_domain,
-                        count=len(cookies),
-                    )
+            cookies = _select_cookies_for(url, s)
+            if cookies:
+                await context.add_cookies([{**c, "path": "/"} for c in cookies])
+                log.info("render cookies injected", count=len(cookies))
             page = await context.new_page()
             try:
                 await page.goto(url, timeout=s.fetch_timeout * 1000, wait_until="domcontentloaded")
@@ -303,13 +350,9 @@ async def render_with_cdp(url: str) -> str:
                     await page.wait_for_load_state("networkidle", timeout=8_000)
                 await page.wait_for_timeout(1_500)
                 html = await page.content()
-                trimmed = html.lstrip()
-                if trimmed.startswith("{") and '"error"' in trimmed[:400]:
-                    # 站点直接吐 JSON 错误（如知乎 40362）：渲染通道没问题，缺登录态/被风控
-                    raise JobPermanentError(
-                        f"渲染后站点仍返回错误响应（需要配置 RENDER_COOKIES 注入登录 Cookie，"
-                        f"或已触发站点风控）：{trimmed[:200]}"
-                    )
+                block_reason = _detect_render_block(html)
+                if block_reason:
+                    raise JobPermanentError(block_reason)
                 # 渲染产物可观测：长度/标题进日志，便于诊断"渲染拿到的是什么"
                 log.info(
                     "render fallback captured",

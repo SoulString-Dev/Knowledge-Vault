@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # 凭据留在自托管服务器，勿提交到仓库
     render_cookies: str | None = None
     render_cookies_domain: str | None = None  # 如 .zhihu.com
+    # 多域注入（优先）：JSON 数组 [{"domain": ".zhihu.com", "cookies": "z_c0=…; d_c0=…"}, …]，
+    # 渲染时按目标 URL 主机名自动匹配
+    render_cookies_json: str | None = None
 
     # Worker
     worker_concurrency: int = 2
