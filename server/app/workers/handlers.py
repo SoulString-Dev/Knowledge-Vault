@@ -26,6 +26,7 @@ from app.services.fetcher import (
     md_to_text,
     parse_published_at,
     render_with_cdp,
+    save_render_debug,
     save_snapshot,
 )
 from app.services.jobqueue import enqueue_job, has_active_job
@@ -104,10 +105,13 @@ async def handle_extract(session: AsyncSession, job: JobView) -> None:
         html = await _render_fallback(article.url)
         try:
             content = extract_content(html, final_url)
-        except QualityGateError as e:
-            # 渲染兜底后仍抽取不到：带渲染产物规模与最终 URL，便于区分"没渲染出来"与"结构认不出"
+        except (QualityGateError, JobPermanentError) as e:
+            # 渲染兜底后仍抽取不到：落盘渲染 HTML 供排查，错误里带规模与产物路径
+            debug_path = save_render_debug(article.id, html)
+            suffix = f"；渲染 HTML 已存 {debug_path}" if debug_path else ""
             raise JobPermanentError(
-                f"渲染兜底后仍未抽取到正文（渲染 HTML {len(html)} 字符，最终 URL: {final_url}）"
+                f"渲染兜底后仍未抽取到正文（渲染 HTML {len(html)} 字符，"
+                f"最终 URL: {final_url}{suffix}）"
             ) from e
 
     assert html is not None  # content 非 None 时 html 必然已在 fetch 或 render 中取得

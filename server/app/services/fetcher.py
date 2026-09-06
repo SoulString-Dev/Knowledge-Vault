@@ -290,6 +290,11 @@ async def render_with_cdp(url: str) -> str:
                 ]
                 if cookies:
                     await context.add_cookies(cookies)
+                    log.info(
+                        "render cookies injected",
+                        domain=s.render_cookies_domain,
+                        count=len(cookies),
+                    )
             page = await context.new_page()
             try:
                 await page.goto(url, timeout=s.fetch_timeout * 1000, wait_until="domcontentloaded")
@@ -298,6 +303,13 @@ async def render_with_cdp(url: str) -> str:
                     await page.wait_for_load_state("networkidle", timeout=8_000)
                 await page.wait_for_timeout(1_500)
                 html = await page.content()
+                trimmed = html.lstrip()
+                if trimmed.startswith("{") and '"error"' in trimmed[:400]:
+                    # 站点直接吐 JSON 错误（如知乎 40362）：渲染通道没问题，缺登录态/被风控
+                    raise JobPermanentError(
+                        f"渲染后站点仍返回错误响应（需要配置 RENDER_COOKIES 注入登录 Cookie，"
+                        f"或已触发站点风控）：{trimmed[:200]}"
+                    )
                 # 渲染产物可观测：长度/标题进日志，便于诊断"渲染拿到的是什么"
                 log.info(
                     "render fallback captured",
@@ -326,6 +338,20 @@ def save_snapshot(user_id: int, article_id: int, html: str) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(gzip.compress(html.encode("utf-8", errors="replace")))
     return rel
+
+
+def save_render_debug(article_id: int, html: str) -> str | None:
+    """渲染兜底抽取失败时落盘 HTML 供排查；落盘失败不影响主流程。"""
+    try:
+        base = Path(get_settings().app_data_dir)
+        debug_dir = base / "render_debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        ts = dt.datetime.now(dt.UTC).strftime("%Y%m%d-%H%M%S")
+        path = debug_dir / f"{article_id}-{ts}.html"
+        path.write_text(html, encoding="utf-8")
+        return str(path)
+    except OSError:
+        return None
 
 
 def delete_snapshot_file(rel_path: str | None) -> None:

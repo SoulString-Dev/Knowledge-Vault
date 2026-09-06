@@ -39,10 +39,10 @@ class Settings(BaseSettings):
     hf_endpoint: str | None = None
 
     # 抓取
-    # 默认为真实 Chrome UA：自报家门的爬虫 UA 会被大量站点（含知乎类反爬）直接 403
+    # 默认为较新版本的真实 Chrome UA（过旧的版本号会被部分站点区别对待）
     fetch_ua: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+        "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
     )
     fetch_timeout: int = 20
     fetch_retries: int = 2
