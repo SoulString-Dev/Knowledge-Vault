@@ -232,7 +232,15 @@ async def render_with_cdp(url: str) -> str:
                 with contextlib.suppress(Exception):
                     await page.wait_for_load_state("networkidle", timeout=8_000)
                 await page.wait_for_timeout(1_500)
-                return await page.content()
+                html = await page.content()
+                # 渲染产物可观测：长度/标题进日志，便于诊断"渲染拿到的是什么"
+                log.info(
+                    "render fallback captured",
+                    url=url,
+                    html_len=len(html),
+                    title=(await page.title())[:120],
+                )
+                return html
             finally:
                 await context.close()
                 await browser.close()
